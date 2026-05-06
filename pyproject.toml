@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "local-deep-research"
+version = "0.1.0"
+description = "A fully local deep research agent. Runs against a local LLM (Ollama) and a self-hosted Firecrawl instance. No API keys required — Google Gemini is supported as an optional provider."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "local-deep-research contributors" }]
+keywords = ["deep-research", "agent", "ollama", "firecrawl", "llm", "local-first"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "httpx>=0.27.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.7.0",
+    "tenacity>=8.2.0",
+    "typer>=0.12.0",
+]
+
+[project.optional-dependencies]
+gemini = ["google-generativeai>=0.7.0"]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "ruff>=0.4.0", "mypy>=1.10.0"]
+
+[project.scripts]
+ldr = "local_deep_research.cli:app"
+local-deep-research = "local_deep_research.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/local_deep_research"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "SIM"]
+ignore = ["E501"]
