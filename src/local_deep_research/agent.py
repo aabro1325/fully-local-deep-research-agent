@@ -108,6 +108,30 @@ class ResearchAgent:
             name, arguments = tool_call
 
             if name == "answer":
+                notes_count = len(self.toolbox.notes.notes)
+                threshold = self.settings.min_notes_before_answer
+                if notes_count < threshold and not forced:
+                    nudge = (
+                        f"You called `answer` but only {notes_count} source(s) "
+                        f"have been recorded in your notes (minimum required: "
+                        f"{threshold}). Use `search` and `visit` to gather "
+                        f"evidence first, then call `answer` once at least "
+                        f"{threshold} source(s) appear in your visit observations "
+                        f"as `[source N]` headers."
+                    )
+                    messages.append(
+                        {"role": "user", "content": _wrap_observation(nudge)}
+                    )
+                    events.append(
+                        ToolEvent(
+                            tool="answer_rejected",
+                            arguments=arguments,
+                            observation=nudge,
+                        )
+                    )
+                    if on_event:
+                        on_event(events[-1])
+                    continue
                 answer_summary = (arguments.get("summary") or "").strip()
                 events.append(
                     ToolEvent(

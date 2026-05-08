@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from typing import Any
 
 from local_deep_research.config import Settings
 from local_deep_research.firecrawl_client import FirecrawlClient, FirecrawlError
 from local_deep_research.llm import LLM
-from local_deep_research.prompts import SUMMARIZE_PAGE_PROMPT
+from local_deep_research.prompts import SUMMARIZE_PAGE_PROMPT, SUMMARIZE_PAGE_RETRY_PROMPT
 
 
 @dataclass
@@ -145,10 +146,49 @@ class Toolbox:
 
         parsed = _safe_json_parse(raw)
         if parsed is None:
-            return (
-                f"[summarizer returned non-JSON for {url}; "
-                f"first 500 chars of raw output: {raw[:500]}]"
+            retry_prompt = SUMMARIZE_PAGE_RETRY_PROMPT.format(
+                goal=goal,
+                url=scrape.url,
+                title=scrape.title or "(no title)",
+                markdown=truncated,
             )
+            retry_raw = self.llm.chat(
+                messages=[{"role": "user", "content": retry_prompt}],
+                model=self._summarizer_model,
+                temperature=0.0,
+                max_tokens=1500,
+            )
+            parsed = _safe_json_parse(retry_raw)
+            if parsed is None:
+                print(
+                    f"[ldr] summarizer JSON parse failed for {scrape.url}; "
+                    f"raw[:1000]={retry_raw[:1000]!r}",
+                    file=sys.stderr,
+                )
+                fallback_text = (retry_raw or raw).strip()
+                note = self.notes.upsert(
+                    {
+                        "url": scrape.url,
+                        "title": scrape.title or scrape.url,
+                        "goal": goal,
+                        "relevant": True,
+                        "rationale": (
+                            "summarizer did not return valid JSON; "
+                            "raw output preserved as fallback"
+                        ),
+                        "evidence": [],
+                        "summary": fallback_text[:1500],
+                    }
+                )
+                ev = "  (none extracted)"
+                return (
+                    f"[source {note.source_id}] {note.title}\n"
+                    f"URL: {note.url}\n"
+                    f"Relevant: {note.relevant}\n"
+                    f"Rationale: {note.rationale}\n"
+                    f"Summary: {note.summary}\n"
+                    f"Evidence quotes:\n{ev}"
+                )
 
         note = self.notes.upsert(
             {

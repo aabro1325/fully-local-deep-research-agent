@@ -36,3 +36,4 @@ class Settings(BaseSettings):
     time_limit_minutes: float = 15.0
     page_char_limit: int = 20000
     request_timeout_seconds: float = 120.0
+    min_notes_before_answer: int = 1

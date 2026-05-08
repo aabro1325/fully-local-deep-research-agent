@@ -101,6 +101,10 @@ know, what is still missing, and what to do next. This is mandatory at least onc
 - When you have enough evidence to answer the user's question with confidence, \
 call the `answer` tool with a short summary. The full long-form report is composed \
 separately from your accumulated notes — do not try to write the full report inline.
+- Do not call `answer` until at least one source has been successfully recorded \
+via `visit`. Visiting alone is not enough — the per-page summarizer must produce \
+a valid note. If your visit observation does not show a `[source N]` header, the \
+note was not recorded; visit again or try a different URL.
 - Cite every nontrivial claim with the URL of its source.
 - Today is {today.isoformat()}.
 
@@ -187,3 +191,27 @@ FORCE_ANSWER_PROMPT = (
     "On your next turn, emit a single <tool_call> for the `answer` tool with your "
     "best-effort summary based on what you have already learned."
 )
+
+
+SUMMARIZE_PAGE_RETRY_PROMPT = """Your previous response was not valid JSON. \
+Output ONLY the JSON object — no prose, no code fences, no commentary before or \
+after. Begin your response with `{{` and end with `}}`. The required schema is \
+unchanged:
+
+  - "relevant" (boolean)
+  - "rationale" (string)
+  - "evidence" (array of strings, up to 8 verbatim quotes)
+  - "summary" (string, 3-8 sentences)
+
+--- GOAL ---
+{goal}
+
+--- URL ---
+{url}
+
+--- TITLE ---
+{title}
+
+--- PAGE MARKDOWN (truncated) ---
+{markdown}
+"""
