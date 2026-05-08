@@ -73,6 +73,9 @@ pip install -e .
 
 # optional — only if you plan to use Gemini:
 pip install -e '.[gemini]'
+
+# optional — only if you plan to run the HTTP API:
+pip install -e '.[server]'
 ```
 
 Copy `.env.example` to `.env` and adjust:
@@ -143,17 +146,96 @@ for note in result.notes:
     print(note.source_id, note.url)
 ```
 
+## Local HTTP API
+
+If you want to call the agent from another local codebase (any language), expose it as a local HTTP service. This is the simplest cross-process integration — no MCP, no IPC, just `POST /research`.
+
+**Install + start the server**
+
+```bash
+pip install -e '.[server]'   # adds fastapi + uvicorn
+ldr serve                    # listens on http://127.0.0.1:8765
+```
+
+Override the bind address with `--host` / `--port`:
+
+```bash
+ldr serve --host 127.0.0.1 --port 9000
+```
+
+### Endpoints
+
+| Method | Path        | Purpose                                                   |
+| ------ | ----------- | --------------------------------------------------------- |
+| `GET`  | `/health`   | Liveness probe — returns `{"status": "ok"}`               |
+| `POST` | `/research` | Run a research session and return the full result as JSON |
+
+`POST /research` accepts:
+
+```json
+{
+  "question": "...",                 // required, non-empty
+  "max_iterations": 20,              // optional override
+  "time_limit_minutes": 15,          // optional override
+  "provider": "ollama" | "gemini",   // optional override
+  "model": "qwen2.5:14b",            // optional main-model override
+  "include_messages": false          // include raw chat transcript in response
+}
+```
+
+Response shape:
+
+```json
+{
+  "question": "...",
+  "final_report": "# ... full markdown report ...",
+  "answer_summary": "3-6 sentence summary",
+  "notes": [{ "source_id": 1, "url": "...", "title": "...", "summary": "...", "evidence": ["..."], "...": "..." }],
+  "events": [{ "tool": "search", "arguments": {"queries": ["..."]}, "observation": "..." }],
+  "iterations": 12,
+  "terminated_reason": "answered",
+  "elapsed_seconds": 184.2,
+  "messages": null
+}
+```
+
+### Calling from another codebase
+
+```bash
+curl -X POST http://127.0.0.1:8765/research \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "What are the most important open problems in mechanistic interpretability?"}'
+```
+
+```python
+import httpx
+
+r = httpx.post(
+    "http://127.0.0.1:8765/research",
+    json={"question": "your question", "max_iterations": 15},
+    timeout=900,   # research runs take minutes
+)
+data = r.json()
+print(data["answer_summary"])
+print(data["final_report"])
+```
+
+### Concurrency
+
+A research run can take minutes, and the local LLM is GPU-bound — two concurrent runs would just thrash. The server holds a single global lock and rejects overlapping requests with `HTTP 409`. If you'd rather have callers queue, change `blocking=False` to `True` in `src/local_deep_research/server.py`.
+
 ## Files
 
 ```
 src/local_deep_research/
 ├── agent.py             # ReAct loop + tool-call parsing
-├── cli.py               # `ldr research` and `ldr doctor`
+├── cli.py               # `ldr research`, `ldr doctor`, `ldr serve`
 ├── config.py            # pydantic-settings env config
 ├── firecrawl_client.py  # /v1/search + /v1/scrape
 ├── llm.py               # Ollama (OpenAI-compat) + Gemini providers
 ├── prompts.py           # System prompt, summarizer prompt, report prompt
 ├── report.py            # Final report composition with truncation retries
+├── server.py            # FastAPI app exposing POST /research and GET /health
 └── tools.py             # search / visit / think / answer dispatcher
 ```
 

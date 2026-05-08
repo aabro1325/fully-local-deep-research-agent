@@ -105,6 +105,32 @@ def research(
 
 
 @app.command()
+def serve(
+    host: Annotated[str, typer.Option("--host", help="Bind address.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", help="Port to listen on.")] = 8765,
+) -> None:
+    """Start the local HTTP API (POST /research, GET /health)."""
+    try:
+        from local_deep_research.server import run_server
+    except ImportError as e:
+        console.print(
+            "[red]Server dependencies not installed.[/red] "
+            r"Install with: pip install 'local-deep-research\[server]'"
+        )
+        raise typer.Exit(code=1) from e
+
+    console.print(
+        Panel.fit(
+            f"[bold]local-deep-research API[/bold]\n"
+            f"[dim]Listening on:[/dim] http://{host}:{port}\n"
+            f"[dim]Endpoints:[/dim] POST /research, GET /health",
+            border_style="blue",
+        )
+    )
+    run_server(host=host, port=port)
+
+
+@app.command()
 def doctor() -> None:
     """Check that Ollama (or Gemini) and Firecrawl are reachable."""
     settings = Settings()
