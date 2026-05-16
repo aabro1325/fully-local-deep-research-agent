@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import os
+import sys
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -9,6 +12,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from local_deep_research.config import Settings
 
 Message = dict[str, str]
+
+http_logger = logging.getLogger("local_deep_research.llm.http")
 
 
 class LLMError(RuntimeError):
@@ -41,9 +46,39 @@ class OllamaLLM(LLM):
         self.summarizer_model = settings.ollama_summarizer_model
         self.num_ctx = settings.ollama_num_ctx
         self.timeout = settings.request_timeout_seconds
+
+        event_hooks: dict[str, list] = {}
+        debug_stderr = bool(os.environ.get("LDR_DEBUG_HTTP"))
+        debug_file_path = os.environ.get("LDR_DEBUG_HTTP_FILE")
+
+        if debug_stderr or debug_file_path or http_logger.isEnabledFor(logging.DEBUG):
+            def _emit(msg: str) -> None:
+                http_logger.debug(msg)
+                if debug_stderr:
+                    print(msg, file=sys.stderr, flush=True)
+                if debug_file_path:
+                    with open(debug_file_path, "a", encoding="utf-8") as f:
+                        f.write(msg + "\n")
+
+            def _log_request(req: httpx.Request) -> None:
+                _emit(f"\n[ollama→] {req.method} {req.url}")
+                if req.content:
+                    _emit(req.content.decode("utf-8", errors="replace"))
+
+            def _log_response(resp: httpx.Response) -> None:
+                resp.read()
+                _emit(
+                    f"[ollama←] {resp.status_code} {len(resp.content)}B "
+                    f"in {resp.elapsed.total_seconds():.2f}s"
+                )
+                _emit(resp.text)
+
+            event_hooks = {"request": [_log_request], "response": [_log_response]}
+
         self._client = httpx.Client(
             base_url=self.base_url,
             timeout=httpx.Timeout(self.timeout, connect=10.0),
+            event_hooks=event_hooks,
         )
 
     @retry(

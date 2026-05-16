@@ -18,6 +18,7 @@ TOOL_CALL_RE = re.compile(
     r"<tool_call>\s*(?P<body>\{.*?\})\s*</tool_call>",
     re.DOTALL,
 )
+THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 @dataclass
@@ -214,16 +215,42 @@ def _normalize_assistant_output(raw: str) -> str:
 
 
 def _extract_tool_call(text: str) -> tuple[str, dict[str, Any]] | None:
+    # Preferred format: a JSON body wrapped in <tool_call>...</tool_call> tags.
     m = TOOL_CALL_RE.search(text)
-    if m is None:
+    if m is not None:
+        call = _parse_tool_call_body(m.group("body"))
+        if call is not None:
+            return call
+    # Fallback: some models emit the bare JSON body without the wrapper tags.
+    return _parse_tool_call_body(_extract_json_object(text))
+
+
+def _parse_tool_call_body(body: str | None) -> tuple[str, dict[str, Any]] | None:
+    if not body:
         return None
-    body = m.group("body")
     try:
         parsed = json.loads(body)
     except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
         return None
     name = parsed.get("name")
     args = parsed.get("arguments") or {}
     if not isinstance(name, str) or not isinstance(args, dict):
         return None
     return name, args
+
+
+def _extract_json_object(text: str) -> str | None:
+    """Best-effort extraction of a single top-level JSON object from model output."""
+    cleaned = THINK_RE.sub("", text).strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return None
+    return cleaned[start : end + 1]
